@@ -7,7 +7,6 @@ from langchain_community.vectorstores import FAISS
 from langchain_community.llms import HuggingFaceHub
 from langchain.chains import RetrievalQA
 import pandas as pd
-import io
 import os
 
 # Configuración de la página
@@ -38,7 +37,7 @@ def extract_text_from_pptx(file):
 if uploaded_file is not None:
     @st.cache_resource
     def initialize_agent(_file):
-        # 1. Extracción desde el archivo subido
+        # 1. Extracción
         df = extract_text_from_pptx(_file)
         loader = DataFrameLoader(df, page_content_column="text")
         documents = loader.load()
@@ -47,16 +46,16 @@ if uploaded_file is not None:
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
         texts = text_splitter.split_documents(documents)
 
-        # 3. Embeddings Gratuitos
+        # 3. Embeddings
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         
         # 4. Vector Store
         vectorstore = FAISS.from_documents(texts, embeddings)
         
-        # 5. LLM (Mistral-7B)
+        # 5. LLM
         llm = HuggingFaceHub(
             repo_id="mistralai/Mistral-7B-Instruct-v0.2",
-            model_kwargs={"temperature": 0.1, "max_length": 512}
+            model_kwargs={"temperature": 0.1, "max_new_tokens": 512}
         )
 
         # 6. Cadena de Respuesta
@@ -89,8 +88,11 @@ if uploaded_file is not None:
         with st.chat_message("assistant"):
             with st.spinner("Analizando presentación..."):
                 query = f"Responde en español basándote estrictamente en el documento cargado. Si la información no está, di que no lo sabes. Pregunta: {prompt}"
-                response = agent.run(query)
-                st.markdown(response)
-                st.session_state.messages.append({"role": "assistant", "content": response})
+                try:
+                    response = agent.invoke(query)["result"]
+                    st.markdown(response)
+                    st.session_state.messages.append({"role": "assistant", "content": response})
+                except Exception as e:
+                    st.error(f"Error al generar respuesta: {e}")
 else:
     st.warning("⚠️ Por favor, sube el archivo .pptx en la barra lateral para comenzar.")
