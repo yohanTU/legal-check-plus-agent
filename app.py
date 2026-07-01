@@ -8,6 +8,7 @@ from langchain_community.llms import HuggingFaceHub
 from langchain.chains import RetrievalQA
 import pandas as pd
 import io
+import os
 
 # Configuración de la página
 st.set_page_config(page_title="Legal Check Plus AI", page_icon="⚖️")
@@ -87,7 +88,6 @@ if uploaded_file is not None:
 
         with st.chat_message("assistant"):
             with st.spinner("Analizando presentación..."):
-                # Prompt optimizado para español y fidelidad al documento
                 query = f"Responde en español basándote estrictamente en el documento cargado. Si la información no está, di que no lo sabes. Pregunta: {prompt}"
                 response = agent.run(query)
                 st.markdown(response)
