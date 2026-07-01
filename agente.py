@@ -5,7 +5,6 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.llms import HuggingFaceHub
-from langchain.chains import RetrievalQA
 import pandas as pd
 import os
 
@@ -13,13 +12,11 @@ import os
 st.set_page_config(page_title="Legal Check Plus AI", page_icon="⚖️")
 st.title("⚖️ Asistente Legal Check Plus")
 
-# --- BARRA LATERAL PARA CARGA DE ARCHIVOS ---
 with st.sidebar:
     st.header("Configuración")
     uploaded_file = st.file_uploader("Sube la presentación comercial (.pptx)", type="pptx")
     st.info("El archivo se procesa en memoria RAM y no se guarda en ningún servidor.")
 
-# --- FUNCIÓN PARA EXTRAER TEXTO DEL PPTX ---
 def extract_text_from_pptx(file):
     prs = Presentation(file)
     text_data = []
@@ -33,46 +30,29 @@ def extract_text_from_pptx(file):
             text_data.append({"text": full_text, "source": f"Slide {i+1}"})
     return pd.DataFrame(text_data)
 
-# --- PROCESAMIENTO DEL AGENTE ---
 if uploaded_file is not None:
     @st.cache_resource
     def initialize_agent(_file):
-        # 1. Extracción
         df = extract_text_from_pptx(_file)
         loader = DataFrameLoader(df, page_content_column="text")
         documents = loader.load()
-
-        # 2. División de texto
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
         texts = text_splitter.split_documents(documents)
-
-        # 3. Embeddings
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-        
-        # 4. Vector Store
         vectorstore = FAISS.from_documents(texts, embeddings)
-        
-        # 5. LLM
         llm = HuggingFaceHub(
             repo_id="mistralai/Mistral-7B-Instruct-v0.2",
             model_kwargs={"temperature": 0.1, "max_new_tokens": 512}
         )
-
-        # 6. Cadena de Respuesta
-        return RetrievalQA.from_chain_type(
-            llm=llm,
-            chain_type="stuff",
-            retriever=vectorstore.as_retriever()
-        )
+        return vectorstore, llm
 
     try:
-        agent = initialize_agent(uploaded_file)
-        st.success("✅ Documento cargado exitosamente. ¡Ya puedes preguntar!")
+        vectorstore, llm = initialize_agent(uploaded_file)
+        st.success("✅ Documento cargado exitosamente.")
     except Exception as e:
-        st.error(f"Error procesando el archivo: {e}")
+        st.error(f"Error: {e}")
         st.stop()
 
-    # --- INTERFAZ DE CHAT ---
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
@@ -86,13 +66,17 @@ if uploaded_file is not None:
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            with st.spinner("Analizando presentación..."):
-                query = f"Responde en español basándote estrictamente en el documento cargado. Si la información no está, di que no lo sabes. Pregunta: {prompt}"
+            with st.spinner("Analizando..."):
+                # LÓGICA SIMPLIFICADA (Sustituye a RetrievalQA)
+                docs = vectorstore.similarity_search(prompt, k=3)
+                context = "\n".join([d.page_content for d in docs])
+                full_prompt = f"Responde en español basándote estrictamente en este texto:\n\n{context}\n\nPregunta: {prompt}"
+                
                 try:
-                    response = agent.invoke(query)["result"]
+                    response = llm.invoke(full_prompt)
                     st.markdown(response)
                     st.session_state.messages.append({"role": "assistant", "content": response})
                 except Exception as e:
-                    st.error(f"Error al generar respuesta: {e}")
+                    st.error(f"Error: {e}")
 else:
-    st.warning("⚠️ Por favor, sube el archivo .pptx en la barra lateral para comenzar.")
+    st.warning("⚠️ Sube el archivo .pptx en la barra lateral.")
